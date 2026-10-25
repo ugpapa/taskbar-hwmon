@@ -24,7 +24,14 @@ sealed class Ipc : NativeWindow, IDisposable
         for (int i = 0; i < 20; i++)
         {
             IntPtr h = Native.FindWindow(null, Title);
-            if (h != IntPtr.Zero) { Native.PostMessage(h, Msg, (IntPtr)command, IntPtr.Zero); return; }
+            if (h != IntPtr.Zero)
+            {
+                // 사용자가 방금 실행한 이 프로세스가 가진 전경 권한을 넘겨 설정 창이 다른 창 뒤에 뜨지 않게 한다
+                Native.GetWindowThreadProcessId(h, out uint pid);
+                Native.AllowSetForegroundWindow(pid);
+                Native.PostMessage(h, Msg, (IntPtr)command, IntPtr.Zero);
+                return;
+            }
             Thread.Sleep(250);
         }
     }

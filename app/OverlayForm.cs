@@ -4,25 +4,29 @@ namespace TaskbarHwMon;
 sealed class OverlayForm : Form
 {
     static readonly Color GpuColor = Color.FromArgb(118, 185, 0), CpuColor = Color.FromArgb(80, 160, 255);
+    // 그리지 않는 색. 레이어드 자식 창이어야 XAML 태스크바 위에 정상 합성된다
+    static readonly Color KeyColor = Color.FromArgb(255, 0, 255);
     const TextFormatFlags TextFlags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
 
     readonly IntPtr _tray;
     readonly Color _text, _dim;
     Config _config;
-    Color _key;
+    Color _bg;
     Font? _font;
     float _scale;
     int[] _colX = [];       // 열 시작 x (숨긴 열은 -1)
     int _width, _rowH;
     Snapshot? _snap;
 
-    public OverlayForm(IntPtr tray, Config config, ContextMenuStrip menu)
+    public OverlayForm(IntPtr tray, Config config, ContextMenuStrip menu, Action onClick)
     {
         _tray = tray;
         _config = config;
+        MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && _config.ClickToggle) onClick(); };
         bool light = Native.SystemUsesLightTheme();
-        // 컬러키 투명: 글자 가장자리가 키 색과 섞이므로 키 색은 실제 태스크바 색으로 맞춘다 (SampleKey)
-        _key = light ? Color.FromArgb(238, 238, 238) : Color.FromArgb(34, 34, 38);
+        // 배경을 투명(컬러키)으로 두면 글자 사이를 클릭할 수 없어서, 실제 태스크바 색으로 채운다 (SampleKey).
+        // ClearType 가장자리도 이 색과 섞이므로 태스크바 위에서 자연스럽다.
+        _bg = light ? Color.FromArgb(238, 238, 238) : Color.FromArgb(34, 34, 38);
         _text = light ? Color.FromArgb(20, 20, 20) : Color.FromArgb(240, 240, 240);
         _dim = light ? Color.FromArgb(90, 90, 90) : Color.FromArgb(170, 170, 170);
 
@@ -31,7 +35,7 @@ sealed class OverlayForm : Form
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
-        BackColor = _key;
+        BackColor = _bg;
         ContextMenuStrip = menu;
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
     }
@@ -55,7 +59,7 @@ sealed class OverlayForm : Form
         base.OnHandleCreated(e);
         Native.SetParent(Handle, _tray);
         Relayout();
-        Native.SetLayeredWindowAttributes(Handle, (uint)ColorTranslator.ToWin32(_key), 255, Native.LWA_COLORKEY);
+        Native.SetLayeredWindowAttributes(Handle, (uint)ColorTranslator.ToWin32(KeyColor), 255, Native.LWA_COLORKEY);
     }
 
     public void ApplyConfig(Config config)
@@ -112,7 +116,7 @@ sealed class OverlayForm : Form
         SampleKey(x0 + w, rc.Bottom / 2);
     }
 
-    /// <summary>창 오른쪽 빈 태스크바 픽셀 몇 개의 중앙값을 키 색으로 쓴다(배경화면·테마 변화 추적).</summary>
+    /// <summary>창 오른쪽 빈 태스크바 픽셀 몇 개의 중앙값을 배경색으로 쓴다(배경화면·테마 변화 추적).</summary>
     void SampleKey(int clientX, int clientY)
     {
         Native.GetWindowRect(_tray, out var tr);
@@ -122,10 +126,9 @@ sealed class OverlayForm : Form
         if (px.Count == 0) return;
         static int Med(IEnumerable<int> v) => v.OrderBy(i => i).ElementAt(v.Count() / 2);
         var c = Color.FromArgb(Med(px.Select(p => (int)p.R)), Med(px.Select(p => (int)p.G)), Med(px.Select(p => (int)p.B)));
-        if (Math.Abs(c.R - _key.R) + Math.Abs(c.G - _key.G) + Math.Abs(c.B - _key.B) <= 3) return;
-        _key = c;
+        if (Math.Abs(c.R - _bg.R) + Math.Abs(c.G - _bg.G) + Math.Abs(c.B - _bg.B) <= 3) return;
+        _bg = c;
         BackColor = c;
-        Native.SetLayeredWindowAttributes(Handle, (uint)ColorTranslator.ToWin32(_key), 255, Native.LWA_COLORKEY);
         Invalidate();
     }
 
@@ -140,7 +143,7 @@ sealed class OverlayForm : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        g.Clear(_key);
+        g.Clear(_bg);
         var s = _snap;
         if (s == null || _font == null) return;
 
@@ -149,9 +152,9 @@ sealed class OverlayForm : Form
         {
             if (!RowVisible(gpu)) continue;
             // GDI ClearType: 배경(키 색 = 태스크바 색)과 섞여 실제 태스크바 위에서 선명하게 보임
-            TextRenderer.DrawText(g, gpu ? "GPU" : "CPU", _font, new Point(0, y), gpu ? GpuColor : CpuColor, _key, TextFlags);
+            TextRenderer.DrawText(g, gpu ? "GPU" : "CPU", _font, new Point(0, y), gpu ? GpuColor : CpuColor, _bg, TextFlags);
             foreach (var m in Metric.All.Where(m => m.Gpu == gpu && _config.IsVisible(m)))
-                TextRenderer.DrawText(g, m.Text(s), _font, new Point(_colX[m.Column], y), ToneColor(m.Tone, m.Get(s)), _key, TextFlags);
+                TextRenderer.DrawText(g, m.Text(s), _font, new Point(_colX[m.Column], y), ToneColor(m.Tone, m.Get(s)), _bg, TextFlags);
             y += _rowH;
         }
     }

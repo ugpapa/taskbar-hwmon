@@ -16,7 +16,25 @@ sealed class Config
     public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskbarHwMon");
     public static string FilePath => Path.Combine(Dir, "config.json");
 
-    public bool IsVisible(Metric m) => !Hidden.Contains(m.Id);
+    public bool Compact { get; set; }                     // 간편 보기: 온도·팬만
+    public bool ClickToggle { get; set; } = true;         // 태스크바 표시 클릭 시 전체↔간편 전환
+    public string? Language { get; set; }                  // auto | ko | en | zh-Hans | ja, 없으면 설치 시 고른 언어
+
+    /// <summary>설치 프로그램이 {app}\language.txt에 남긴 언어 → 없으면 Windows 언어.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EffectiveLanguage => Language ?? InstallerLanguage() ?? "auto";
+
+    static string? InstallerLanguage()
+    {
+        try
+        {
+            string f = Path.Combine(AppContext.BaseDirectory, "language.txt");
+            return File.Exists(f) ? File.ReadAllText(f).Trim() is { Length: > 0 } s ? s : null : null;
+        }
+        catch { return null; }
+    }
+
+    public bool IsVisible(Metric m) => Compact ? m.InCompact : !Hidden.Contains(m.Id);
 
     public static Config Load()
     {

@@ -9,6 +9,7 @@ sealed class HostContext : ApplicationContext
     readonly NotifyIcon _tray;
     readonly ContextMenuStrip _menu = new();
     readonly Ipc _ipc;
+    readonly ToolStripMenuItem _menuSettings, _menuCompact, _menuExit;
     Config _config = Config.Load();
     OverlayForm? _overlay;
     SettingsForm? _settings;
@@ -16,10 +17,11 @@ sealed class HostContext : ApplicationContext
 
     public HostContext(bool openSettings)
     {
-        _menu.Items.Add("설정(&S)...", null, (_, _) => ShowSettings());
-        _menu.Items.Add(new ToolStripSeparator());
-        _menu.Items.Add("종료(&X)", null, (_, _) => ExitThread());
-        _menu.Items[0].Font = new Font(_menu.Font, FontStyle.Bold);
+        L.Use(_config.EffectiveLanguage);
+        _menuSettings = new ToolStripMenuItem("", null, (_, _) => ShowSettings()) { Font = new Font(_menu.Font, FontStyle.Bold) };
+        _menuCompact = new ToolStripMenuItem("", null, (_, _) => ToggleCompact());
+        _menuExit = new ToolStripMenuItem("", null, (_, _) => ExitThread());
+        _menu.Items.AddRange([_menuSettings, _menuCompact, new ToolStripSeparator(), _menuExit]);
 
         _tray = new NotifyIcon
         {
@@ -53,19 +55,33 @@ sealed class HostContext : ApplicationContext
         _data.Interval = Math.Clamp(config.IntervalMs, 250, 10000);
         _overlay?.ApplyConfig(config);
         if (save) config.Save();
+        L.Use(config.EffectiveLanguage);
+        _menuSettings.Text = L.T("MenuSettings");
+        _menuCompact.Text = L.T("MenuCompact");
+        _menuCompact.Checked = config.Compact;
+        _menuExit.Text = L.T("MenuExit");
+    }
+
+    /// <summary>태스크바 표시 클릭·트레이 메뉴: 전체 ↔ 간편 전환 (저장됨).</summary>
+    void ToggleCompact()
+    {
+        var c = _config.Clone();
+        c.Compact = !c.Compact;
+        Apply(c, save: true);
     }
 
     void ShowSettings()
     {
-        if (_settings is { IsDisposed: false })
+        if (_settings is not { IsDisposed: false })
         {
-            _settings.WindowState = FormWindowState.Normal;
-            _settings.Activate();
-            return;
+            _settings = new SettingsForm(this, _config);
+            _settings.Show();
         }
-        _settings = new SettingsForm(this, _config);
-        _settings.Show();
+        _settings.WindowState = FormWindowState.Normal;
+        // 전경 잠금으로 Activate가 무시되어도 다른 창 위에 보이도록 잠깐 최상위로 올린다
+        _settings.TopMost = true;
         _settings.Activate();
+        _settings.TopMost = false;
     }
 
     void EnsureOverlay()
@@ -78,7 +94,7 @@ sealed class HostContext : ApplicationContext
         }
         if (_overlay != null) { try { _overlay.Dispose(); } catch { } _overlay = null; }
         if (tray == IntPtr.Zero) return;
-        _overlay = new OverlayForm(tray, _config, _menu);
+        _overlay = new OverlayForm(tray, _config, _menu, ToggleCompact);
         _overlay.Show();
     }
 

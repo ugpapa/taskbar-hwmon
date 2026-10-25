@@ -6,26 +6,29 @@ sealed class SettingsForm : Form
     readonly HostContext _host;
     readonly Config _original, _work;
     readonly Dictionary<string, CheckBox> _checks = [];
+    TableLayoutPanel _items = null!;
     readonly ComboBox _fan = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+    readonly ComboBox _mode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+    readonly CheckBox _clickToggle = new() { AutoSize = true };
     readonly NumericUpDown _offset = new() { Minimum = 0, Maximum = 3000, Width = 80 };
     readonly NumericUpDown _fontPx = new() { Minimum = 9, Maximum = 24, Width = 80 };
-    readonly CheckBox _bold = new() { Text = "굵게", AutoSize = true };
+    readonly CheckBox _bold = new() { AutoSize = true };
     readonly ComboBox _interval = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
-    readonly CheckBox _autoStart = new() { Text = "Windows 시작 시 자동 실행", AutoSize = true };
-    readonly CheckBox _widgets = new() { Text = "Windows 11 위젯 대신 사용 (위젯·날씨 버튼 제거)", AutoSize = true };
+    readonly ComboBox _language = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+    readonly CheckBox _autoStart = new() { AutoSize = true };
     static readonly int[] Intervals = [500, 1000, 2000, 5000];
     bool _loading = true, _saved;
 
-    // 표의 행: (이름, GPU 항목, CPU 항목) — 같은 열에 놓이는 항목끼리 짝지음
-    static readonly (string Label, string Gpu, string Cpu)[] Rows =
+    // 표의 행: (문자열 키, GPU 항목, CPU 항목) — 같은 열에 놓이는 항목끼리 짝지음
+    static readonly (string Key, string Gpu, string Cpu)[] Rows =
     [
-        ("사용률", "GpuLoad", "CpuLoad"),
-        ("온도", "GpuTemp", "CpuTemp"),
-        ("전력", "GpuPower", "CpuPower"),
-        ("클럭", "GpuClock", "CpuClock"),
-        ("전압", "GpuVolt", "CpuVolt"),
-        ("메모리 클럭", "VramClock", "DramClock"),
-        ("팬 속도", "GpuFan", "CpuFan"),
+        ("Usage", "GpuLoad", "CpuLoad"),
+        ("Temp", "GpuTemp", "CpuTemp"),
+        ("Power", "GpuPower", "CpuPower"),
+        ("Clock", "GpuClock", "CpuClock"),
+        ("Voltage", "GpuVolt", "CpuVolt"),
+        ("MemClock", "VramClock", "DramClock"),
+        ("Fan", "GpuFan", "CpuFan"),
     ];
 
     public SettingsForm(HostContext host, Config config)
@@ -34,7 +37,7 @@ sealed class SettingsForm : Form
         _original = config.Clone();
         _work = config.Clone();
 
-        Text = $"{Program.AppName} 설정";
+        Text = L.T("SettingsTitle", Program.AppName);
         Icon = Program.LoadIcon(new Size(32, 32));
         Font = SystemFonts.MessageBoxFont;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -44,13 +47,15 @@ sealed class SettingsForm : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(12);
 
+        _clickToggle.Text = L.T("ClickToggle");
+        _bold.Text = L.T("Bold");
+        _autoStart.Text = L.T("AutoStart");
+
         var root = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill };
-        root.Controls.Add(Group("표시 항목", BuildItems()));
-        root.Controls.Add(Group("모양", BuildLook()));
-        var start = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true };
-        start.Controls.Add(_autoStart);
-        start.Controls.Add(_widgets);
-        root.Controls.Add(Group("시작", start));
+        root.Controls.Add(Group(L.T("DisplayMode"), BuildMode()));
+        root.Controls.Add(Group(L.T("Items"), BuildItems()));
+        root.Controls.Add(Group(L.T("Look"), BuildLook()));
+        root.Controls.Add(Group(L.T("Start"), _autoStart));
         root.Controls.Add(BuildButtons());
         Controls.Add(root);
 
@@ -72,29 +77,43 @@ sealed class SettingsForm : Form
         Font = bold ? new Font(SystemFonts.MessageBoxFont!, FontStyle.Bold) : null,
     };
 
+    Control BuildMode()
+    {
+        var t = new TableLayoutPanel { ColumnCount = 1, AutoSize = true };
+        _mode.Items.AddRange([L.T("ModeFull"), L.T("ModeCompact")]);
+        t.Controls.Add(_mode);
+        t.Controls.Add(_clickToggle);
+        _mode.SelectedIndexChanged += (_, _) => Changed();
+        _clickToggle.CheckedChanged += (_, _) => Changed();
+        return t;
+    }
+
     Control BuildItems()
     {
-        var t = new TableLayoutPanel { ColumnCount = 3, AutoSize = true };
+        var t = _items = new TableLayoutPanel { ColumnCount = 3, AutoSize = true };
         t.Controls.Add(Lbl(""), 0, 0);
         t.Controls.Add(Lbl("GPU", true), 1, 0);
         t.Controls.Add(Lbl("CPU", true), 2, 0);
         for (int r = 0; r < Rows.Length; r++)
         {
-            t.Controls.Add(Lbl(Rows[r].Label), 0, r + 1);
+            t.Controls.Add(Lbl(L.T(Rows[r].Key)), 0, r + 1);
             t.Controls.Add(Check(Rows[r].Gpu), 1, r + 1);
             t.Controls.Add(Check(Rows[r].Cpu), 2, r + 1);
         }
-        t.Controls.Add(Lbl("CPU 쿨러 팬"), 0, Rows.Length + 1);
-        t.Controls.Add(_fan, 1, Rows.Length + 1);
-        t.SetColumnSpan(_fan, 2);
+        // 팬 선택은 간편 모드(CPU 팬 RPM 표시)에서도 써야 하므로 비활성화되는 표 밖에 둔다
+        var fanRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        fanRow.Controls.Add(Lbl(L.T("CpuCoolerFan")));
+        fanRow.Controls.Add(_fan);
         _fan.SelectedIndexChanged += (_, _) => Changed();
-        return t;
+        var outer = new TableLayoutPanel { ColumnCount = 1, AutoSize = true };
+        outer.Controls.Add(t);
+        outer.Controls.Add(fanRow);
+        return outer;
     }
 
     CheckBox Check(string id)
     {
-        var m = Metric.All.First(m => m.Id == id);
-        var c = new CheckBox { AutoSize = true, Margin = new Padding(3, 5, 24, 3), Tag = m };
+        var c = new CheckBox { AutoSize = true, Margin = new Padding(3, 5, 24, 3) };
         c.CheckedChanged += (_, _) => Changed();
         _checks[id] = c;
         return c;
@@ -103,16 +122,21 @@ sealed class SettingsForm : Form
     Control BuildLook()
     {
         var t = new TableLayoutPanel { ColumnCount = 3, AutoSize = true };
-        t.Controls.Add(Lbl("왼쪽 여백"), 0, 0);
+        t.Controls.Add(Lbl(L.T("LeftMargin")), 0, 0);
         t.Controls.Add(_offset, 1, 0);
         t.Controls.Add(Lbl("px"), 2, 0);
-        t.Controls.Add(Lbl("글자 크기"), 0, 1);
+        t.Controls.Add(Lbl(L.T("FontSize")), 0, 1);
         t.Controls.Add(_fontPx, 1, 1);
         t.Controls.Add(_bold, 2, 1);
-        t.Controls.Add(Lbl("갱신 간격"), 0, 2);
+        t.Controls.Add(Lbl(L.T("Interval")), 0, 2);
         t.Controls.Add(_interval, 1, 2);
         t.SetColumnSpan(_interval, 2);
-        _interval.Items.AddRange(Intervals.Select(ms => (object)$"{ms / 1000.0:0.#}초").ToArray());
+        t.Controls.Add(Lbl(L.T("Language")), 0, 3);
+        t.Controls.Add(_language, 1, 3);
+        t.SetColumnSpan(_language, 2);
+        _interval.Items.AddRange(Intervals.Select(ms => (object)L.T("Seconds", (ms / 1000.0).ToString("0.#"))).ToArray());
+        _language.Items.Add(L.T("LangAuto"));
+        _language.Items.AddRange(L.Languages.Select(l => (object)l.Name).ToArray());
         _offset.ValueChanged += (_, _) => Changed();
         _fontPx.ValueChanged += (_, _) => Changed();
         _bold.CheckedChanged += (_, _) => Changed();
@@ -122,8 +146,8 @@ sealed class SettingsForm : Form
 
     Control BuildButtons()
     {
-        var ok = new Button { Text = "확인", DialogResult = DialogResult.OK, AutoSize = true, MinimumSize = new Size(88, 0) };
-        var cancel = new Button { Text = "취소", DialogResult = DialogResult.Cancel, AutoSize = true, MinimumSize = new Size(88, 0) };
+        var ok = new Button { Text = L.T("OK"), DialogResult = DialogResult.OK, AutoSize = true, MinimumSize = new Size(88, 0) };
+        var cancel = new Button { Text = L.T("Cancel"), DialogResult = DialogResult.Cancel, AutoSize = true, MinimumSize = new Size(88, 0) };
         ok.Click += (_, _) => Save();
         cancel.Click += (_, _) => Close();
         AcceptButton = ok;
@@ -136,6 +160,9 @@ sealed class SettingsForm : Form
 
     void LoadValues()
     {
+        _mode.SelectedIndex = _work.Compact ? 1 : 0;
+        _clickToggle.Checked = _work.ClickToggle;
+        _items.Enabled = !_work.Compact;
         foreach (var (id, c) in _checks) c.Checked = !_work.Hidden.Contains(id);
 
         foreach (var (name, rpm) in _host.Sensors.MotherboardFans())
@@ -148,18 +175,21 @@ sealed class SettingsForm : Form
         _bold.Checked = _work.Bold;
         int idx = Array.IndexOf(Intervals, _work.IntervalMs);
         _interval.SelectedIndex = idx >= 0 ? idx : 1;
+        _language.SelectedIndex = Array.FindIndex(L.Languages, l => l.Code == _work.EffectiveLanguage) + 1; // 없으면 0 = 자동
         _autoStart.Checked = AutoStart.IsEnabledFor(Program.ExePath);
-        _widgets.Checked = Widgets.IsDisabled();
     }
 
     sealed record FanItem(string Name, float? Rpm)
     {
-        public override string ToString() => Rpm is float r ? $"{Name}  (현재 {r:0} RPM)" : Name;
+        public override string ToString() => Rpm is float r ? L.T("FanCurrent", Name, r.ToString("0")) : Name;
     }
 
     void Changed()
     {
         if (_loading) return;
+        _work.Compact = _mode.SelectedIndex == 1;
+        _work.ClickToggle = _clickToggle.Checked;
+        _items.Enabled = !_work.Compact;
         _work.Hidden = _checks.Where(kv => !kv.Value.Checked).Select(kv => kv.Key).ToHashSet();
         _work.CpuFanSensor = (_fan.SelectedItem as FanItem)?.Name ?? _work.CpuFanSensor;
         _work.OffsetX = (int)_offset.Value;
@@ -172,24 +202,12 @@ sealed class SettingsForm : Form
     void Save()
     {
         _saved = true;
+        _work.Language = _language.SelectedIndex <= 0 ? "auto" : L.Languages[_language.SelectedIndex - 1].Code;
         _host.Apply(_work.Clone(), save: true);
         bool enabled = AutoStart.IsEnabledFor(Program.ExePath);
         if (_autoStart.Checked && !enabled) AutoStart.Enable(Program.ExePath);
         else if (!_autoStart.Checked && enabled) AutoStart.Disable();
-        if (_widgets.Checked != Widgets.IsDisabled() && ConfirmWidgets(_widgets.Checked))
-        {
-            bool replace = _widgets.Checked;
-            Task.Run(() => { if (replace) Widgets.Replace(); else Widgets.Restore(onlyIfOurs: false); });
-        }
         Close();
-    }
-
-    bool ConfirmWidgets(bool replace)
-    {
-        string msg = replace
-            ? "Windows 11 위젯(날씨 버튼)을 제거하고 그 자리에 표시합니다.\n\n위젯 정책을 끄고 Windows Web Experience Pack을 삭제하며, 적용을 위해 탐색기가 잠깐 다시 시작됩니다.\n계속할까요?"
-            : "Windows 11 위젯을 다시 켭니다.\n\n탐색기가 잠깐 다시 시작되며, 위젯 패키지가 없으면 Microsoft Store가 열립니다.\n계속할까요?";
-        return MessageBox.Show(this, msg, Program.AppName, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

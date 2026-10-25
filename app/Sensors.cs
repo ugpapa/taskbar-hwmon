@@ -13,6 +13,9 @@ record Metric(string Id, string Label, bool Gpu, int Column, Func<Snapshot, floa
 {
     public string Text(Snapshot s) => Prefix + (Get(s) is float f ? f.ToString(Format) + Unit : "-");
 
+    /// <summary>간편 보기에 나오는 항목: 온도, 팬.</summary>
+    public bool InCompact => Column is 2 or 7;
+
     // 열: 0 이름, 1 사용률, 2 온도, 3 전력, 4 클럭, 5 전압, 6 VRAM 클럭, 7 팬
     public static readonly string[] ColumnTemplates = ["GPU", "100%", "100°C", "450.0W", "5800MHz", "1.100V", "VRAM 10501MHz", "3000RPM"];
 
