@@ -20,6 +20,8 @@ static class Program
         // 설치 프로그램에서 호출 (관리자 권한으로 실행됨)
         if (args.Contains("--register-autostart")) return AutoStart.Enable(ExePath) ? 0 : 1;
         if (args.Contains("--unregister-autostart")) { AutoStart.Disable(); return 0; }
+        if (args.Contains("--replace-widgets")) { Widgets.Replace(); return 0; }
+        if (args.Contains("--restore-widgets")) { Widgets.Restore(onlyIfOurs: true); return 0; }
 
         bool openSettings = args.Contains("--settings");
 

@@ -12,6 +12,7 @@ sealed class SettingsForm : Form
     readonly CheckBox _bold = new() { Text = "굵게", AutoSize = true };
     readonly ComboBox _interval = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
     readonly CheckBox _autoStart = new() { Text = "Windows 시작 시 자동 실행", AutoSize = true };
+    readonly CheckBox _widgets = new() { Text = "Windows 11 위젯 대신 사용 (위젯·날씨 버튼 제거)", AutoSize = true };
     static readonly int[] Intervals = [500, 1000, 2000, 5000];
     bool _loading = true, _saved;
 
@@ -46,7 +47,10 @@ sealed class SettingsForm : Form
         var root = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill };
         root.Controls.Add(Group("표시 항목", BuildItems()));
         root.Controls.Add(Group("모양", BuildLook()));
-        root.Controls.Add(Group("시작", _autoStart));
+        var start = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true };
+        start.Controls.Add(_autoStart);
+        start.Controls.Add(_widgets);
+        root.Controls.Add(Group("시작", start));
         root.Controls.Add(BuildButtons());
         Controls.Add(root);
 
@@ -145,6 +149,7 @@ sealed class SettingsForm : Form
         int idx = Array.IndexOf(Intervals, _work.IntervalMs);
         _interval.SelectedIndex = idx >= 0 ? idx : 1;
         _autoStart.Checked = AutoStart.IsEnabledFor(Program.ExePath);
+        _widgets.Checked = Widgets.IsDisabled();
     }
 
     sealed record FanItem(string Name, float? Rpm)
@@ -171,7 +176,20 @@ sealed class SettingsForm : Form
         bool enabled = AutoStart.IsEnabledFor(Program.ExePath);
         if (_autoStart.Checked && !enabled) AutoStart.Enable(Program.ExePath);
         else if (!_autoStart.Checked && enabled) AutoStart.Disable();
+        if (_widgets.Checked != Widgets.IsDisabled() && ConfirmWidgets(_widgets.Checked))
+        {
+            bool replace = _widgets.Checked;
+            Task.Run(() => { if (replace) Widgets.Replace(); else Widgets.Restore(onlyIfOurs: false); });
+        }
         Close();
+    }
+
+    bool ConfirmWidgets(bool replace)
+    {
+        string msg = replace
+            ? "Windows 11 위젯(날씨 버튼)을 제거하고 그 자리에 표시합니다.\n\n위젯 정책을 끄고 Windows Web Experience Pack을 삭제하며, 적용을 위해 탐색기가 잠깐 다시 시작됩니다.\n계속할까요?"
+            : "Windows 11 위젯을 다시 켭니다.\n\n탐색기가 잠깐 다시 시작되며, 위젯 패키지가 없으면 Microsoft Store가 열립니다.\n계속할까요?";
+        return MessageBox.Show(this, msg, Program.AppName, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

@@ -32,6 +32,7 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [Tasks]
 Name: "autostart"; Description: "Windows 시작 시 자동 실행"; GroupDescription: "추가 작업:"
+Name: "replacewidgets"; Description: "Windows 11 위젯 대신 사용 (기본 위젯·날씨 버튼 제거, 탐색기 재시작)"; GroupDescription: "추가 작업:"; Flags: unchecked
 Name: "desktopicon"; Description: "바탕 화면에 바로 가기 만들기"; GroupDescription: "추가 작업:"; Flags: unchecked
 
 [Files]
@@ -44,11 +45,14 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Parameters: "--register-autostart"; Flags: runhidden waituntilterminated; Tasks: autostart
+Filename: "{app}\{#AppExe}"; Parameters: "--replace-widgets"; StatusMsg: "Windows 위젯 제거 중..."; Flags: runhidden waituntilterminated; Tasks: replacewidgets
 Filename: "{app}\{#AppExe}"; Description: "{#AppName} 실행"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im {#AppExe}"; Flags: runhidden waituntilterminated; RunOnceId: "Kill"
 Filename: "{app}\{#AppExe}"; Parameters: "--unregister-autostart"; Flags: runhidden waituntilterminated; RunOnceId: "UnregTask"
+; 이 앱이 위젯을 제거했던 경우에만 되돌림
+Filename: "{app}\{#AppExe}"; Parameters: "--restore-widgets"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreWidgets"
 
 [Code]
 function DesktopRuntimeInstalled(): Boolean;

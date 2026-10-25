@@ -40,6 +40,15 @@ static class Native
         finally { ReleaseDC(IntPtr.Zero, dc); }
     }
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string? cls, string? title);
+
+    /// <summary>Windows 11 기본값(값 없음)은 가운데 정렬.</summary>
+    public static bool TaskbarCentered()
+    {
+        using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced");
+        return k?.GetValue("TaskbarAl") is not int v || v != 0;
+    }
+
     public static bool SystemUsesLightTheme()
     {
         using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");

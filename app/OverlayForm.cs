@@ -100,6 +100,13 @@ sealed class OverlayForm : Form
         int rows = (RowVisible(true) ? 1 : 0) + (RowVisible(false) ? 1 : 0);
         int w = Math.Max(1, _width), h = Math.Max(1, _rowH * rows);
         int x0 = (int)(_config.OffsetX * _scale);
+        // 왼쪽 정렬 태스크바에서는 시작 버튼과 겹치므로 알림 영역 왼쪽에 붙인다
+        if (!Native.TaskbarCentered())
+        {
+            IntPtr notify = Native.FindWindowEx(_tray, IntPtr.Zero, "TrayNotifyWnd", null);
+            if (notify != IntPtr.Zero && Native.GetWindowRect(notify, out var nr) && Native.GetWindowRect(_tray, out var tr2))
+                x0 = nr.Left - tr2.Left - w - x0;
+        }
         int y0 = Math.Max(0, (rc.Bottom - h) / 2);
         Native.SetWindowPos(Handle, Native.HWND_TOP, x0, y0, w, h, Native.SWP_NOACTIVATE | Native.SWP_SHOWWINDOW);
         SampleKey(x0 + w, rc.Bottom / 2);
