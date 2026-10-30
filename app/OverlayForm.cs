@@ -9,6 +9,7 @@ sealed class OverlayForm : Form
     const TextFormatFlags TextFlags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
 
     readonly IntPtr _tray;
+    readonly bool _secondary;   // 보조 모니터 태스크바면 간편 보기 상태를 따로 쓴다
     readonly Color _text, _dim;
     Config _config;
     Color _bg;
@@ -18,11 +19,12 @@ sealed class OverlayForm : Form
     int _width, _rowH;
     Snapshot? _snap;
 
-    public OverlayForm(IntPtr tray, Config config, ContextMenuStrip menu, Action onClick)
+    public OverlayForm(IntPtr tray, bool secondary, Config config, ContextMenuStrip menu, Action<bool> onClick)
     {
         _tray = tray;
+        _secondary = secondary;
         _config = config;
-        MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && _config.ClickToggle) onClick(); };
+        MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && _config.ClickToggle) onClick(_secondary); };
         bool light = Native.SystemUsesLightTheme();
         // 배경을 투명(컬러키)으로 두면 글자 사이를 클릭할 수 없어서, 실제 태스크바 색으로 채운다 (SampleKey).
         // ClearType 가장자리도 이 색과 섞이므로 태스크바 위에서 자연스럽다.
@@ -77,7 +79,8 @@ sealed class OverlayForm : Form
         Invalidate();
     }
 
-    bool RowVisible(bool gpu) => Metric.All.Any(m => m.Gpu == gpu && _config.IsVisible(m));
+    bool Visible(Metric m) => _config.IsVisible(m, _config.CompactFor(_secondary));
+    bool RowVisible(bool gpu) => Metric.All.Any(m => m.Gpu == gpu && Visible(m));
 
     public void Relayout()
     {
@@ -92,7 +95,7 @@ sealed class OverlayForm : Form
             _colX = new int[Metric.ColumnTemplates.Length];
             for (int c = 0; c < _colX.Length; c++)
             {
-                bool used = c == 0 || Metric.All.Any(m => m.Column == c && _config.IsVisible(m));
+                bool used = c == 0 || Metric.All.Any(m => m.Column == c && Visible(m));
                 _colX[c] = used ? x : -1;
                 if (used) x += TextRenderer.MeasureText(Metric.ColumnTemplates[c], _font, Size.Empty, TextFlags).Width + gap;
             }
@@ -110,6 +113,8 @@ sealed class OverlayForm : Form
             IntPtr notify = Native.FindWindowEx(_tray, IntPtr.Zero, "TrayNotifyWnd", null);
             if (notify != IntPtr.Zero && Native.GetWindowRect(notify, out var nr) && Native.GetWindowRect(_tray, out var tr2))
                 x0 = nr.Left - tr2.Left - w - x0;
+            else // 보조 태스크바엔 알림 영역 창이 없음 → 오른쪽 시계 자리만큼 비운다
+                x0 = rc.Right - w - x0 - (int)(110 * _scale);
         }
         int y0 = Math.Max(0, (rc.Bottom - h) / 2);
         Native.SetWindowPos(Handle, Native.HWND_TOP, x0, y0, w, h, Native.SWP_NOACTIVATE | Native.SWP_SHOWWINDOW);
@@ -153,7 +158,7 @@ sealed class OverlayForm : Form
             if (!RowVisible(gpu)) continue;
             // GDI ClearType: 배경(키 색 = 태스크바 색)과 섞여 실제 태스크바 위에서 선명하게 보임
             TextRenderer.DrawText(g, gpu ? "GPU" : "CPU", _font, new Point(0, y), gpu ? GpuColor : CpuColor, _bg, TextFlags);
-            foreach (var m in Metric.All.Where(m => m.Gpu == gpu && _config.IsVisible(m)))
+            foreach (var m in Metric.All.Where(m => m.Gpu == gpu && Visible(m)))
                 TextRenderer.DrawText(g, m.Text(s), _font, new Point(_colX[m.Column], y), ToneColor(m.Tone, m.Get(s)), _bg, TextFlags);
             y += _rowH;
         }

@@ -16,8 +16,10 @@ sealed class Config
     public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskbarHwMon");
     public static string FilePath => Path.Combine(Dir, "config.json");
 
-    public bool Compact { get; set; }                     // 간편 보기: 온도·팬만
+    public bool Compact { get; set; }                     // 간편 보기: 온도·팬만 (주 모니터)
+    public bool CompactSecondary { get; set; }            // 보조 모니터 태스크바의 간편 보기 (클릭으로 따로 전환)
     public bool ClickToggle { get; set; } = true;         // 태스크바 표시 클릭 시 전체↔간편 전환
+    public bool AllMonitors { get; set; } = true;         // 보조 모니터 태스크바(Shell_SecondaryTrayWnd)에도 표시
     public string? Language { get; set; }                  // auto | ko | en | zh-Hans | ja, 없으면 설치 시 고른 언어
 
     /// <summary>설치 프로그램이 {app}\language.txt에 남긴 언어 → 없으면 Windows 언어.</summary>
@@ -34,7 +36,9 @@ sealed class Config
         catch { return null; }
     }
 
-    public bool IsVisible(Metric m) => Compact ? m.InCompact : !Hidden.Contains(m.Id);
+    public bool IsVisible(Metric m) => IsVisible(m, Compact);
+    public bool IsVisible(Metric m, bool compact) => compact ? m.InCompact : !Hidden.Contains(m.Id);
+    public bool CompactFor(bool secondary) => secondary ? CompactSecondary : Compact;
 
     public static Config Load()
     {

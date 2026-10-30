@@ -11,7 +11,7 @@ sealed class HostContext : ApplicationContext
     readonly Ipc _ipc;
     readonly ToolStripMenuItem _menuSettings, _menuCompact, _menuExit;
     Config _config = Config.Load();
-    OverlayForm? _overlay;
+    readonly Dictionary<IntPtr, OverlayForm> _overlays = [];   // 태스크바 창 → 오버레이
     SettingsForm? _settings;
     bool _busy;
 
@@ -19,7 +19,7 @@ sealed class HostContext : ApplicationContext
     {
         L.Use(_config.EffectiveLanguage);
         _menuSettings = new ToolStripMenuItem("", null, (_, _) => ShowSettings()) { Font = new Font(_menu.Font, FontStyle.Bold) };
-        _menuCompact = new ToolStripMenuItem("", null, (_, _) => ToggleCompact());
+        _menuCompact = new ToolStripMenuItem("", null, (_, _) => ToggleCompactAll());
         _menuExit = new ToolStripMenuItem("", null, (_, _) => ExitThread());
         _menu.Items.AddRange([_menuSettings, _menuCompact, new ToolStripSeparator(), _menuExit]);
 
@@ -38,9 +38,9 @@ sealed class HostContext : ApplicationContext
         _data.Tick += async (_, _) => await Tick();
         _data.Start();
         // 탐색기 재시작 시 태스크바가 새로 생기므로, 창이 사라지면 다시 붙인다
-        _watch.Tick += (_, _) => EnsureOverlay();
+        _watch.Tick += (_, _) => EnsureOverlays();
         _watch.Start();
-        EnsureOverlay();
+        EnsureOverlays();
         _ = Tick();
 
         if (openSettings) ShowSettings();
@@ -53,7 +53,8 @@ sealed class HostContext : ApplicationContext
         _config = config;
         _sensors.CpuFanName = config.CpuFanSensor;
         _data.Interval = Math.Clamp(config.IntervalMs, 250, 10000);
-        _overlay?.ApplyConfig(config);
+        foreach (var o in _overlays.Values) o.ApplyConfig(config);
+        if (_overlays.Count > 0) EnsureOverlays(); // 보조 모니터 표시 켜고 끄기 즉시 반영
         if (save) config.Save();
         L.Use(config.EffectiveLanguage);
         _menuSettings.Text = L.T("MenuSettings");
@@ -62,11 +63,20 @@ sealed class HostContext : ApplicationContext
         _menuExit.Text = L.T("MenuExit");
     }
 
-    /// <summary>태스크바 표시 클릭·트레이 메뉴: 전체 ↔ 간편 전환 (저장됨).</summary>
-    void ToggleCompact()
+    /// <summary>태스크바 표시 클릭: 클릭한 태스크바(주 / 보조)만 전체 ↔ 간편 전환 (저장됨).</summary>
+    void ToggleCompact(bool secondary)
     {
         var c = _config.Clone();
-        c.Compact = !c.Compact;
+        if (secondary) c.CompactSecondary = !c.CompactSecondary;
+        else c.Compact = !c.Compact;
+        Apply(c, save: true);
+    }
+
+    /// <summary>트레이 메뉴: 모든 태스크바를 주 모니터 기준 반대 상태로 맞춘다.</summary>
+    void ToggleCompactAll()
+    {
+        var c = _config.Clone();
+        c.Compact = c.CompactSecondary = !c.Compact;
         Apply(c, save: true);
     }
 
@@ -84,18 +94,31 @@ sealed class HostContext : ApplicationContext
         _settings.TopMost = false;
     }
 
-    void EnsureOverlay()
+    /// <summary>주 태스크바 + (설정 시) 보조 모니터 태스크바마다 오버레이 하나씩. 모니터 연결·해제도 여기서 따라간다.</summary>
+    void EnsureOverlays()
     {
-        IntPtr tray = Native.FindWindow("Shell_TrayWnd", null);
-        if (_overlay is { IsDisposed: false, IsHandleCreated: true } && tray != IntPtr.Zero && Native.GetParent(_overlay.Handle) == tray)
+        var trays = new List<IntPtr>();
+        IntPtr main = Native.FindWindow("Shell_TrayWnd", null);
+        if (main != IntPtr.Zero) trays.Add(main);
+        int secondaryFrom = trays.Count;
+        if (_config.AllMonitors)
+            for (IntPtr h = IntPtr.Zero; (h = Native.FindWindowEx(IntPtr.Zero, h, "Shell_SecondaryTrayWnd", null)) != IntPtr.Zero;)
+                trays.Add(h);
+
+        foreach (var (tray, o) in _overlays.ToList())
         {
-            _overlay.Relayout();
-            return;
+            if (trays.Contains(tray) && o is { IsDisposed: false, IsHandleCreated: true } && Native.GetParent(o.Handle) == tray) continue;
+            try { o.Dispose(); } catch { }
+            _overlays.Remove(tray);
         }
-        if (_overlay != null) { try { _overlay.Dispose(); } catch { } _overlay = null; }
-        if (tray == IntPtr.Zero) return;
-        _overlay = new OverlayForm(tray, _config, _menu, ToggleCompact);
-        _overlay.Show();
+        for (int i = 0; i < trays.Count; i++)
+        {
+            IntPtr tray = trays[i];
+            if (_overlays.TryGetValue(tray, out var o)) { o.Relayout(); continue; }
+            o = new OverlayForm(tray, i >= secondaryFrom, _config, _menu, ToggleCompact);
+            _overlays[tray] = o;
+            o.Show();
+        }
     }
 
     async Task Tick()
@@ -105,7 +128,7 @@ sealed class HostContext : ApplicationContext
         try
         {
             var s = await Task.Run(_sensors.Read);
-            _overlay?.SetSnapshot(s);
+            foreach (var o in _overlays.Values) o.SetSnapshot(s);
             _tray.Text = Tooltip(s);
         }
         catch { }
@@ -125,7 +148,7 @@ sealed class HostContext : ApplicationContext
         _data.Stop();
         _watch.Stop();
         _settings?.Close();
-        _overlay?.Dispose();
+        foreach (var o in _overlays.Values) o.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
         _ipc.Dispose();

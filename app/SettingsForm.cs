@@ -10,6 +10,7 @@ sealed class SettingsForm : Form
     readonly ComboBox _fan = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
     readonly ComboBox _mode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
     readonly CheckBox _clickToggle = new() { AutoSize = true };
+    readonly CheckBox _allMonitors = new() { AutoSize = true };
     readonly NumericUpDown _offset = new() { Minimum = 0, Maximum = 3000, Width = 80 };
     readonly NumericUpDown _fontPx = new() { Minimum = 9, Maximum = 24, Width = 80 };
     readonly CheckBox _bold = new() { AutoSize = true };
@@ -48,6 +49,7 @@ sealed class SettingsForm : Form
         Padding = new Padding(12);
 
         _clickToggle.Text = L.T("ClickToggle");
+        _allMonitors.Text = L.T("AllMonitors");
         _bold.Text = L.T("Bold");
         _autoStart.Text = L.T("AutoStart");
 
@@ -83,8 +85,11 @@ sealed class SettingsForm : Form
         _mode.Items.AddRange([L.T("ModeFull"), L.T("ModeCompact")]);
         t.Controls.Add(_mode);
         t.Controls.Add(_clickToggle);
-        _mode.SelectedIndexChanged += (_, _) => Changed();
+        t.Controls.Add(_allMonitors);
+        // 설정 창의 표시 모드는 모든 태스크바에 적용 (클릭 전환만 태스크바별)
+        _mode.SelectedIndexChanged += (_, _) => { if (!_loading) _work.CompactSecondary = _mode.SelectedIndex == 1; Changed(); };
         _clickToggle.CheckedChanged += (_, _) => Changed();
+        _allMonitors.CheckedChanged += (_, _) => Changed();
         return t;
     }
 
@@ -162,6 +167,7 @@ sealed class SettingsForm : Form
     {
         _mode.SelectedIndex = _work.Compact ? 1 : 0;
         _clickToggle.Checked = _work.ClickToggle;
+        _allMonitors.Checked = _work.AllMonitors;
         _items.Enabled = !_work.Compact;
         foreach (var (id, c) in _checks) c.Checked = !_work.Hidden.Contains(id);
 
@@ -189,6 +195,7 @@ sealed class SettingsForm : Form
         if (_loading) return;
         _work.Compact = _mode.SelectedIndex == 1;
         _work.ClickToggle = _clickToggle.Checked;
+        _work.AllMonitors = _allMonitors.Checked;
         _items.Enabled = !_work.Compact;
         _work.Hidden = _checks.Where(kv => !kv.Value.Checked).Select(kv => kv.Key).ToHashSet();
         _work.CpuFanSensor = (_fan.SelectedItem as FanItem)?.Name ?? _work.CpuFanSensor;
