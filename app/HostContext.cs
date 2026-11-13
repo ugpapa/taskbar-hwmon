@@ -5,7 +5,11 @@ sealed class HostContext : ApplicationContext
 {
     readonly Sensors _sensors = new();
     readonly System.Windows.Forms.Timer _data = new();
-    readonly System.Windows.Forms.Timer _watch = new() { Interval = 2000 };
+    readonly System.Windows.Forms.Timer _watch = new() { Interval = 1000 };
+    // 테마 변경 직후 태스크바 색이 바뀌는 동안 짧게 여러 번 다시 샘플링한다
+    readonly System.Windows.Forms.Timer _themeBurst = new() { Interval = 100 };
+    int _themeBurstLeft;
+    readonly SynchronizationContext? _ui;
     readonly NotifyIcon _tray;
     readonly ContextMenuStrip _menu = new();
     readonly Ipc _ipc;
@@ -40,6 +44,13 @@ sealed class HostContext : ApplicationContext
         // 탐색기 재시작 시 태스크바가 새로 생기므로, 창이 사라지면 다시 붙인다
         _watch.Tick += (_, _) => EnsureOverlays();
         _watch.Start();
+        _ui = SynchronizationContext.Current;
+        _themeBurst.Tick += (_, _) =>
+        {
+            foreach (var o in _overlays.Values) o.Relayout();
+            if (--_themeBurstLeft <= 0) _themeBurst.Stop();
+        };
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         EnsureOverlays();
         _ = Tick();
 
@@ -92,6 +103,21 @@ sealed class HostContext : ApplicationContext
         _settings.TopMost = true;
         _settings.Activate();
         _settings.TopMost = false;
+    }
+
+    void OnUserPreferenceChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is not (Microsoft.Win32.UserPreferenceCategory.General
+            or Microsoft.Win32.UserPreferenceCategory.Color
+            or Microsoft.Win32.UserPreferenceCategory.VisualStyle)) return;
+        void Run()
+        {
+            foreach (var o in _overlays.Values) o.ThemeChanged();
+            _themeBurstLeft = 10;
+            _themeBurst.Start();
+        }
+        if (_ui != null && SynchronizationContext.Current != _ui) _ui.Post(_ => Run(), null);
+        else Run();
     }
 
     /// <summary>주 태스크바 + (설정 시) 보조 모니터 태스크바마다 오버레이 하나씩. 모니터 연결·해제도 여기서 따라간다.</summary>
@@ -147,6 +173,8 @@ sealed class HostContext : ApplicationContext
     {
         _data.Stop();
         _watch.Stop();
+        _themeBurst.Stop();
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _settings?.Close();
         foreach (var o in _overlays.Values) o.Dispose();
         _tray.Visible = false;

@@ -10,7 +10,7 @@ sealed class OverlayForm : Form
 
     readonly IntPtr _tray;
     readonly bool _secondary;   // 보조 모니터 태스크바면 간편 보기 상태를 따로 쓴다
-    readonly Color _text, _dim;
+    Color _text, _dim;
     Config _config;
     Color _bg;
     Font? _font;
@@ -29,8 +29,7 @@ sealed class OverlayForm : Form
         // 배경을 투명(컬러키)으로 두면 글자 사이를 클릭할 수 없어서, 실제 태스크바 색으로 채운다 (SampleKey).
         // ClearType 가장자리도 이 색과 섞이므로 태스크바 위에서 자연스럽다.
         _bg = light ? Color.FromArgb(238, 238, 238) : Color.FromArgb(34, 34, 38);
-        _text = light ? Color.FromArgb(20, 20, 20) : Color.FromArgb(240, 240, 240);
-        _dim = light ? Color.FromArgb(90, 90, 90) : Color.FromArgb(170, 170, 170);
+        SetTextTone(_bg);
 
         // 최상위 폼이면 WinForms가 GWLP_HWNDPARENT로 소유자를 바꿔 부모가 태스크바에서 떨어진다
         TopLevel = false;
@@ -134,7 +133,27 @@ sealed class OverlayForm : Form
         if (Math.Abs(c.R - _bg.R) + Math.Abs(c.G - _bg.G) + Math.Abs(c.B - _bg.B) <= 3) return;
         _bg = c;
         BackColor = c;
+        SetTextTone(c);
         Invalidate();
+    }
+
+    /// <summary>테마가 바뀐 즉시 레지스트리 테마로 먼저 칠하고, 실제 색은 이어지는 Relayout 샘플링으로 맞춘다.</summary>
+    public void ThemeChanged()
+    {
+        bool light = Native.SystemUsesLightTheme();
+        _bg = light ? Color.FromArgb(238, 238, 238) : Color.FromArgb(34, 34, 38);
+        BackColor = _bg;
+        SetTextTone(_bg);
+        Invalidate();
+        if (IsHandleCreated) Relayout();
+    }
+
+    /// <summary>글자색은 실행 중 테마가 바뀌어도 보이도록 실제 배경 밝기로 정한다.</summary>
+    void SetTextTone(Color bg)
+    {
+        bool lightBg = 0.299 * bg.R + 0.587 * bg.G + 0.114 * bg.B >= 128;
+        _text = lightBg ? Color.FromArgb(20, 20, 20) : Color.FromArgb(240, 240, 240);
+        _dim = lightBg ? Color.FromArgb(90, 90, 90) : Color.FromArgb(170, 170, 170);
     }
 
     Color ToneColor(Tone tone, float? v) => tone switch
