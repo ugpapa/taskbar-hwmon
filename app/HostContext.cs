@@ -165,7 +165,8 @@ sealed class HostContext : ApplicationContext
     {
         static string V(float? v, string fmt, string unit) => v is float f ? f.ToString(fmt) + unit : "-";
         string t = $"GPU {V(s.GpuLoad, "0", "%")} {V(s.GpuTemp, "0", "°C")} {V(s.GpuPower, "0", "W")}\n" +
-                   $"CPU {V(s.CpuLoad, "0", "%")} {V(s.CpuTemp, "0", "°C")} {V(s.CpuPower, "0.0", "W")}";
+                   $"CPU {V(s.CpuLoad, "0", "%")} {V(s.CpuTemp, "0", "°C")} {V(s.CpuPower, "0.0", "W")}\n" +
+                   $"DISK {V(s.DiskLoad, "0", "%")}  RAM {V(s.RamLoad, "0", "%")}";
         return t.Length > 127 ? t[..127] : t;
     }
 

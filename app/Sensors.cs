@@ -4,7 +4,8 @@ namespace TaskbarHwMon;
 
 record Snapshot(
     float? GpuClock, float? GpuPower, float? GpuTemp, float? GpuVolt, float? VramClock, float? GpuLoad, float? GpuFan,
-    float? CpuClock, float? CpuPower, float? CpuTemp, float? CpuLoad, float? CpuVolt, float? DramClock, float? CpuFan);
+    float? CpuClock, float? CpuPower, float? CpuTemp, float? CpuLoad, float? CpuVolt, float? DramClock, float? CpuFan,
+    float? DiskLoad, float? RamLoad);
 
 enum Tone { Normal, Dim, Temp }
 
@@ -13,11 +14,8 @@ record Metric(string Id, string Label, bool Gpu, int Column, Func<Snapshot, floa
 {
     public string Text(Snapshot s) => Prefix + (Get(s) is float f ? f.ToString(Format) + Unit : "-");
 
-    /// <summary>간편 보기에 나오는 항목: 온도, 팬.</summary>
-    public bool InCompact => Column is 2 or 7;
-
-    // 열: 0 이름, 1 사용률, 2 온도, 3 전력, 4 클럭, 5 전압, 6 VRAM 클럭, 7 팬
-    public static readonly string[] ColumnTemplates = ["GPU", "100%", "100°C", "450.0W", "5800MHz", "1.100V", "VRAM 10501MHz", "3000RPM"];
+    // 열: 0 이름, 1 사용률, 2 온도, 3 전력, 4 클럭, 5 전압, 6 VRAM 클럭, 7 팬, 8 디스크(GPU 줄)·메모리(CPU 줄)
+    public static readonly string[] ColumnTemplates = ["GPU", "100%", "100°C", "450.0W", "5800MHz", "1.100V", "VRAM 10501MHz", "3000RPM", "DISK 100%"];
 
     public static readonly Metric[] All =
     [
@@ -35,6 +33,9 @@ record Metric(string Id, string Label, bool Gpu, int Column, Func<Snapshot, floa
         new("CpuVolt",   "CPU 전압",      false, 5, s => s.CpuVolt,   "0.000", "V",   Tone.Dim),
         new("DramClock", "DRAM 클럭",     false, 6, s => s.DramClock, "0",     "MHz", Tone.Dim, "DRAM "),
         new("CpuFan",    "CPU 쿨러 팬",   false, 7, s => s.CpuFan,    "0",     "RPM", Tone.Dim),
+        // 작업 관리자와 같은 값: 디스크 = 활성 시간(가장 바쁜 디스크), 메모리 = 사용 중 비율
+        new("DiskLoad",  "디스크 사용률", true,  8, s => s.DiskLoad,  "0",     "%",   Tone.Normal, "DISK "),
+        new("RamLoad",   "메모리 사용률", false, 8, s => s.RamLoad,   "0",     "%",   Tone.Normal, "RAM "),
     ];
 }
 
@@ -44,6 +45,7 @@ sealed class Sensors : IDisposable
     readonly IHardware? _cpu, _gpu, _superIo;
     readonly float? _dramClock;
     readonly object _lock = new(); // LHM은 스레드 안전하지 않음
+    readonly DiskActivity _disk = new();
 
     /// <summary>CPU 쿨러로 쓸 메인보드 팬 센서 이름 (예: "Fan #1").</summary>
     public string CpuFanName { get; set; } = "Fan #1";
@@ -115,8 +117,62 @@ sealed class Sensors : IDisposable
             CpuLoad: Find(_cpu, SensorType.Load, "CPU Total"),
             CpuVolt: Find(_cpu, SensorType.Voltage, "CPU Core") ?? First(_cpu, SensorType.Voltage),
             DramClock: _dramClock,
-            CpuFan: Find(_superIo, SensorType.Fan, CpuFanName));
+            CpuFan: Find(_superIo, SensorType.Fan, CpuFanName),
+            DiskLoad: _disk.Read(),
+            RamLoad: Native.MemoryLoad());
     }
 
-    public void Dispose() => _pc.Close();
+    public void Dispose()
+    {
+        _pc.Close();
+        _disk.Dispose();
+    }
+}
+
+/// <summary>작업 관리자 "디스크" %: 물리 디스크별 활성 시간(100 - 유휴 시간) 중 최댓값.</summary>
+sealed class DiskActivity : IDisposable
+{
+    List<System.Diagnostics.PerformanceCounter> _counters = [];
+    DateTime _nextScan = DateTime.MinValue;
+
+    string[] _names = [];
+
+    /// <summary>디스크 목록이 바뀌었을 때만 카운터를 새로 만든다(USB 디스크 연결·해제 추적). 바뀌었으면 true.</summary>
+    bool Rescan()
+    {
+        _nextScan = DateTime.UtcNow.AddSeconds(30);
+        try
+        {
+            var names = new System.Diagnostics.PerformanceCounterCategory("PhysicalDisk").GetInstanceNames()
+                .Where(n => n != "_Total").Order().ToArray();
+            if (names.SequenceEqual(_names) && _counters.Count > 0) return false;
+            foreach (var c in _counters) c.Dispose();
+            _counters = [];
+            _names = names;
+            foreach (var name in names)
+            {
+                var c = new System.Diagnostics.PerformanceCounter("PhysicalDisk", "% Idle Time", name, readOnly: true);
+                c.NextValue(); // 첫 값은 의미가 없어 기준점만 잡는다
+                _counters.Add(c);
+            }
+        }
+        catch { }
+        return true;
+    }
+
+    public float? Read()
+    {
+        if (DateTime.UtcNow >= _nextScan && Rescan()) return null;
+        try
+        {
+            if (_counters.Count == 0) return null;
+            return _counters.Max(c => Math.Clamp(100f - c.NextValue(), 0f, 100f));
+        }
+        catch { _names = []; _nextScan = DateTime.MinValue; return null; } // 디스크가 빠졌으면 다음에 다시 찾는다
+    }
+
+    public void Dispose()
+    {
+        foreach (var c in _counters) c.Dispose();
+    }
 }

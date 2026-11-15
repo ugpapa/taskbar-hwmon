@@ -7,6 +7,7 @@ sealed class SettingsForm : Form
     readonly Config _original, _work;
     readonly Dictionary<string, CheckBox> _checks = [];
     TableLayoutPanel _items = null!;
+    readonly Label _itemsHint = new() { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 3) };
     readonly ComboBox _fan = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
     readonly ComboBox _mode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
     readonly CheckBox _clickToggle = new() { AutoSize = true };
@@ -19,6 +20,7 @@ sealed class SettingsForm : Form
     readonly CheckBox _autoStart = new() { AutoSize = true };
     static readonly int[] Intervals = [500, 1000, 2000, 5000];
     bool _loading = true, _saved;
+    bool _checksCompact;    // 표 체크박스가 지금 어느 모드(전체/간편)의 항목을 보여 주는지
 
     // 표의 행: (문자열 키, GPU 항목, CPU 항목) — 같은 열에 놓이는 항목끼리 짝지음
     static readonly (string Key, string Gpu, string Cpu)[] Rows =
@@ -30,6 +32,7 @@ sealed class SettingsForm : Form
         ("Voltage", "GpuVolt", "CpuVolt"),
         ("MemClock", "VramClock", "DramClock"),
         ("Fan", "GpuFan", "CpuFan"),
+        ("DiskRam", "DiskLoad", "RamLoad"),   // 한 열을 나눠 씀: GPU 줄 = 디스크, CPU 줄 = 메모리
     ];
 
     public SettingsForm(HostContext host, Config config)
@@ -105,6 +108,10 @@ sealed class SettingsForm : Form
             t.Controls.Add(Check(Rows[r].Gpu), 1, r + 1);
             t.Controls.Add(Check(Rows[r].Cpu), 2, r + 1);
         }
+        _checks["DiskLoad"].Text = L.T("Disk");
+        _checks["RamLoad"].Text = L.T("Memory");
+        t.Controls.Add(_itemsHint, 0, Rows.Length + 1);
+        t.SetColumnSpan(_itemsHint, 3);
         // 팬 선택은 간편 모드(CPU 팬 RPM 표시)에서도 써야 하므로 비활성화되는 표 밖에 둔다
         var fanRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         fanRow.Controls.Add(Lbl(L.T("CpuCoolerFan")));
@@ -168,8 +175,7 @@ sealed class SettingsForm : Form
         _mode.SelectedIndex = _work.Compact ? 1 : 0;
         _clickToggle.Checked = _work.ClickToggle;
         _allMonitors.Checked = _work.AllMonitors;
-        _items.Enabled = !_work.Compact;
-        foreach (var (id, c) in _checks) c.Checked = !_work.Hidden.Contains(id);
+        LoadChecks();
 
         foreach (var (name, rpm) in _host.Sensors.MotherboardFans())
             _fan.Items.Add(new FanItem(name, rpm));
@@ -190,14 +196,27 @@ sealed class SettingsForm : Form
         public override string ToString() => Rpm is float r ? L.T("FanCurrent", Name, r.ToString("0")) : Name;
     }
 
+    /// <summary>표는 선택한 표시 모드의 항목을 편집한다. 모드를 바꾸면 그 모드의 값으로 다시 채운다.</summary>
+    void LoadChecks()
+    {
+        bool was = _loading;
+        _loading = true;
+        _checksCompact = _work.Compact;
+        foreach (var (id, c) in _checks)
+            c.Checked = _checksCompact ? _work.CompactShown.Contains(id) : !_work.Hidden.Contains(id);
+        _itemsHint.Text = L.T(_checksCompact ? "ItemsForCompact" : "ItemsForFull");
+        _loading = was;
+    }
+
     void Changed()
     {
         if (_loading) return;
         _work.Compact = _mode.SelectedIndex == 1;
         _work.ClickToggle = _clickToggle.Checked;
         _work.AllMonitors = _allMonitors.Checked;
-        _items.Enabled = !_work.Compact;
-        _work.Hidden = _checks.Where(kv => !kv.Value.Checked).Select(kv => kv.Key).ToHashSet();
+        if (_checksCompact != _work.Compact) LoadChecks();   // 다른 모드의 항목을 덮어쓰지 않도록 먼저 바꿔 채움
+        else if (_checksCompact) _work.CompactShown = _checks.Where(kv => kv.Value.Checked).Select(kv => kv.Key).ToHashSet();
+        else _work.Hidden = _checks.Where(kv => !kv.Value.Checked).Select(kv => kv.Key).ToHashSet();
         _work.CpuFanSensor = (_fan.SelectedItem as FanItem)?.Name ?? _work.CpuFanSensor;
         _work.OffsetX = (int)_offset.Value;
         _work.FontPx = (float)_fontPx.Value;

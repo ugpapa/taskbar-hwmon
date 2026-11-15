@@ -56,4 +56,21 @@ static class Native
         using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
         return k?.GetValue("SystemUsesLightTheme") is int v && v == 1;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct MEMORYSTATUSEX
+    {
+        public uint dwLength, dwMemoryLoad;
+        public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual;
+    }
+
+    [DllImport("kernel32.dll")] static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX m);
+
+    /// <summary>물리 메모리 사용률 % (작업 관리자 "메모리"와 같은 값).</summary>
+    public static float? MemoryLoad()
+    {
+        var m = new MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<MEMORYSTATUSEX>() };
+        if (!GlobalMemoryStatusEx(ref m) || m.ullTotalPhys == 0) return null;
+        return (float)(100.0 * (m.ullTotalPhys - m.ullAvailPhys) / m.ullTotalPhys);
+    }
 }
