@@ -178,7 +178,18 @@ sealed class OverlayForm : Form
             // GDI ClearType: 배경(키 색 = 태스크바 색)과 섞여 실제 태스크바 위에서 선명하게 보임
             TextRenderer.DrawText(g, gpu ? "GPU" : "CPU", _font, new Point(0, y), gpu ? GpuColor : CpuColor, _bg, TextFlags);
             foreach (var m in Metric.All.Where(m => m.Gpu == gpu && Visible(m)))
-                TextRenderer.DrawText(g, m.Text(s), _font, new Point(_colX[m.Column], y), ToneColor(m.Tone, m.Get(s)), _bg, TextFlags);
+            {
+                var color = ToneColor(m.Tone, m.Get(s));
+                if (m.PrefixColor is not Color pc)
+                {
+                    TextRenderer.DrawText(g, m.Text(s), _font, new Point(_colX[m.Column], y), color, _bg, TextFlags);
+                    continue;
+                }
+                // DISK / RAM 머리말은 GPU·CPU 이름처럼 고유 색, 숫자는 일반 글자색
+                TextRenderer.DrawText(g, m.Prefix, _font, new Point(_colX[m.Column], y), pc, _bg, TextFlags);
+                int px = TextRenderer.MeasureText(g, m.Prefix, _font, Size.Empty, TextFlags).Width;
+                TextRenderer.DrawText(g, m.Value(s), _font, new Point(_colX[m.Column] + px, y), color, _bg, TextFlags);
+            }
             y += _rowH;
         }
     }

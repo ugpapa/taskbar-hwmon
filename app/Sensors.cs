@@ -10,8 +10,10 @@ record Snapshot(
 enum Tone { Normal, Dim, Temp }
 
 /// <summary>표시 항목. Column은 GPU/CPU 두 줄에서 같은 열에 정렬되는 위치.</summary>
-record Metric(string Id, string Label, bool Gpu, int Column, Func<Snapshot, float?> Get, string Format, string Unit, Tone Tone = Tone.Normal, string Prefix = "")
+record Metric(string Id, string Label, bool Gpu, int Column, Func<Snapshot, float?> Get, string Format, string Unit, Tone Tone = Tone.Normal, string Prefix = "", Color? PrefixColor = null)
 {
+    public string Value(Snapshot s) => Get(s) is float f ? f.ToString(Format) + Unit : "-";
+
     public string Text(Snapshot s) => Prefix + (Get(s) is float f ? f.ToString(Format) + Unit : "-");
 
     // 열: 0 이름, 1 사용률, 2 온도, 3 전력, 4 클럭, 5 전압, 6 VRAM 클럭, 7 팬, 8 디스크(GPU 줄)·메모리(CPU 줄)
@@ -34,8 +36,8 @@ record Metric(string Id, string Label, bool Gpu, int Column, Func<Snapshot, floa
         new("DramClock", "DRAM 클럭",     false, 6, s => s.DramClock, "0",     "MHz", Tone.Dim, "DRAM "),
         new("CpuFan",    "CPU 쿨러 팬",   false, 7, s => s.CpuFan,    "0",     "RPM", Tone.Dim),
         // 작업 관리자와 같은 값: 디스크 = 활성 시간(가장 바쁜 디스크), 메모리 = 사용 중 비율
-        new("DiskLoad",  "디스크 사용률", true,  8, s => s.DiskLoad,  "0",     "%",   Tone.Normal, "DISK "),
-        new("RamLoad",   "메모리 사용률", false, 8, s => s.RamLoad,   "0",     "%",   Tone.Normal, "RAM "),
+        new("DiskLoad",  "디스크 사용률", true,  8, s => s.DiskLoad,  "0",     "%",   Tone.Normal, "DISK ", Color.FromArgb(240, 150, 30)),
+        new("RamLoad",   "메모리 사용률", false, 8, s => s.RamLoad,   "0",     "%",   Tone.Normal, "RAM ",  Color.FromArgb(175, 120, 255)),
     ];
 }
 
